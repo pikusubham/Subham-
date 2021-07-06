@@ -1,0 +1,227 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+import openpyxl
+import xlsxwriter
+
+#######################################################
+# Importing time in seconds and the behavior at
+# those corresponding times and sorting according to time
+
+data = pd.read_excel(r'Inputdata.xlsx')
+data.sort_values(by=['time in s'], inplace=True)
+#######################################################
+
+
+#######################################################
+#### Randmoly select the start_time from the dataset
+#### 100 times
+TotRandT = 50
+data_length = data.shape[0]
+TIndices = np.random.choice(
+    np.arange(0, data_length, 1), TotRandT, replace=False)
+print(TIndices)
+#######################################################
+
+
+#######################################################
+# Running over all the entries to find the starting
+# position in the sorted array
+def find_position(Data, time):
+    data_length = Data.shape[0]
+    req_position = 0
+    for i in range(data_length):
+        if Data['time in s'].iloc[i] >= time:
+            req_position = i
+            break;
+    return req_position
+#print(data['time in s'].iloc[start_position])
+#print(start_position, data.index[start_position])
+########################################################
+
+
+########################################################
+# Find the number of unique behaviours with a given
+# time_start and runtime
+curr_final_arr = np.zeros((24, TotRandT))
+cum_final_arr = np.zeros((24, TotRandT))
+runtime_arr = np.arange(3600,25*3600, 3600)
+TLoopIndex = -1
+for startTIndex in TIndices:
+    TLoopIndex = TLoopIndex + 1
+    print(TLoopIndex)
+    
+    time_start = data['time in s'].iloc[startTIndex]
+    start_position = startTIndex
+    unique_behave_count = []
+
+    runtimeLoopIndex = -1
+    for runtime in runtime_arr:
+        
+        runtimeLoopIndex = runtimeLoopIndex + 1
+        
+        behavior_arr=[] # Stores the unique observed behaviors
+        end_time = ( runtime + time_start ) % ( 24 * 3600 )
+        end_position = find_position(data, end_time)
+        position = start_position
+        
+        if start_position < end_position:
+            while data['time in s'].iloc[position]<runtime+time_start:
+                if data['Behavior'].iloc[position] not in behavior_arr:
+                    behavior_arr.append(data['Behavior'].
+                                        iloc[position])
+                position = position + 1
+            
+        else:
+            while position <= data_length-1:
+                if data['Behavior'].iloc[position] not in behavior_arr:
+                    behavior_arr.append(data['Behavior'].
+                                        iloc[position])
+                position = position + 1
+        
+            position = 0
+            while position < end_position:
+                if data['Behavior'].iloc[position] not in behavior_arr:
+                    behavior_arr.append(data['Behavior'].
+                                        iloc[position])
+                position = position + 1
+        
+        cum_final_arr[runtimeLoopIndex, TLoopIndex] = len(behavior_arr)
+########################################################
+#print(final_arr)
+
+
+
+
+####################################################
+# Normal Cumulative Plot
+plt.clf()
+for i in range(TotRandT):
+
+    plt.plot(runtime_arr, cum_final_arr[:,i], 'o')
+
+plt.ylabel("V - NUMBER OF UNIQUE BEHAVIOUR")
+plt.xlabel("N - TIME (SECONDS)")
+plt.savefig("Cumulative_Unique_24hrs_"+str(i)+".png")
+plt.show()
+df_cum = pd.DataFrame(cum_final_arr, index = runtime_arr,
+                      columns = data['time in s'].iloc[TIndices])
+#df.to_excel('Dog_UniqueBehaviorCumulative_DOG.xlsx')
+
+
+
+# log-log Cumulative Plot
+slope = []
+intercept = []
+plt.clf()
+totslope = 0
+totintercept = 0
+for i in range(TotRandT):
+
+    plt.plot(np.log10(runtime_arr), np.log10(cum_final_arr[:,i]), 'o')
+
+    # fitting----------
+    linear_model = np.polyfit(np.log10(runtime_arr),
+                              np.log10(cum_final_arr[:,i]), 1)
+    linear_model_fn = np.poly1d(linear_model)
+    plt.plot(np.log10(runtime_arr),
+             linear_model_fn(np.log10(runtime_arr)))
+    #------------------
+    
+    # Write this in a xlsx file------------
+    slope.append(linear_model_fn[1])
+    intercept.append(linear_model_fn[0])
+    totslope = totslope + linear_model_fn[0]
+    totintercept = totintercept + linear_model_fn[1]
+    #--------------------------------------
+
+plt.ylabel("V - NUMBER OF UNIQUE BEHAVIOUR (LOG)")
+plt.xlabel("N - TIME (SECONDS) (LOG)")
+plt.savefig("LOGLOG_Cumulative_Unique_24hrs_"+str(i)+".png")
+plt.show()
+
+# Writting the xlsx file
+df_si = pd.DataFrame({'start time' : data['time in s'].iloc[TIndices],
+                      'slope' : slope, 'intercpet' : intercept})
+#df.to_excel('Dog_UniBehCum_DOG_FitSlopeIntercept.xlsx')
+
+# Writting the log log values of the entire table
+df_cumlog = pd.DataFrame(np.log10(cum_final_arr),
+                         index = np.log10(runtime_arr),
+                         columns = data['time in s'].iloc[TIndices])
+#df.to_excel('Dog_LogLog_UniqueBehaviorCumulative_DOG.xlsx')
+#########################################################
+
+
+
+
+#######################################################
+# find the increase in the number of unique behaviouor
+for startT in range(TotRandT):
+    for T in range(24):
+        if T == 0:
+            curr_final_arr[T, startT] = cum_final_arr[T, startT] - 0
+        else:
+            curr_final_arr[T, startT] = cum_final_arr[T, startT] - cum_final_arr[T-1, startT]
+#######################################################
+
+
+
+# Make this into a percentage
+curr_final_arr = (curr_final_arr/86)*100.
+#########################################################
+# Normal Current Plot
+plt.clf()
+for i in range(TotRandT):
+
+    plt.plot(runtime_arr, curr_final_arr[:,i])
+
+plt.ylabel("V - INCREASE IN THE NUMBER OF UNIQUE BEHAVIOUR")
+plt.xlabel("N - TIME (SECONDS)")
+plt.savefig("Curr_Unique_24hrs_"+str(i))
+plt.show()
+
+# Writting the excel file for increment in the number of unique behaviour
+df_curr = pd.DataFrame(curr_final_arr, index = runtime_arr,
+                       columns = data['time in s'].iloc[TIndices])
+#df.to_excel('Dog_UniqueBehaviorCurrent_DOG.xlsx')
+
+
+'''
+# This does not make sense -> log(0) if no increase in the count
+# Log-Log Current Plot
+plt.clf()
+for i in range(TotRandT):
+
+    plt.plot(np.log(runtime_arr), np.log(curr_final_arr[:,i]))
+    linear_model = np.polyfit(np.log(runtime_arr),
+                              np.log(curr_final_arr[:,i]), 1)
+    linear_model_fn = np.poly1d(linear_model)
+    plt.plot(np.log(runtime_arr), linear_model_fn(np.log(runtime_arr)))
+
+    #Write this in a  xlsx file for different starting time
+    print(linear_model_fn[1], linear_model_fn[0]) 
+    
+plt.ylabel("V - NUMBER OF UNIQUE BEHAVIOUR (LOG)")
+plt.xlabel("N - TIME (SECONDS) (LOG)")
+plt.savefig("LOGLOG_Current_Unique_24hrs_"+str(i)+".png")
+
+# Writting the excel file for log log values of the increment
+df = pd.DataFrame(np.log(curr_final_arr), index = np.log(runtime_arr),
+                  columns = TIndices)
+df.to_excel('Dog_LogLog_UniqueBehaviorCurrent_DOG.xlsx')
+'''
+#######################################################
+
+
+
+
+writer = pd.ExcelWriter('OuTput.xlsx', engine='xlsxwriter')
+
+#write each DataFrame to a specific sheet
+df_cum.to_excel(writer, sheet_name='Cumulative')
+df_si.to_excel(writer, sheet_name='Slope Intercept')
+df_cumlog.to_excel(writer, sheet_name='Cumulative Log')
+df_curr.to_excel(writer, sheet_name='Increment')
+
+writer.save()
